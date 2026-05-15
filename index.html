@@ -276,10 +276,10 @@ footer a { color: var(--hint); }
     <small>LLMs &amp; LLM Agents</small>
   </div>
   <ul>
-    <li><a href="#problem"  class="nav-section">The problem</a></li>
-    <li><a href="#naive"    class="nav-section">Naive solutions</a></li>
+    <li><a href="#problem"   class="nav-section">Context fills up</a></li>
+    <li><a href="#naive"     class="nav-section">Naive solutions</a></li>
     <div class="nav-divider"></div>
-    <li><a href="#techniques" class="nav-section">Modern techniques</a></li>
+    <li><a href="#techniques" class="nav-section">Techniques</a></li>
     <li><a href="#t1" class="nav-sub">① Hierarchical summarization</a></li>
     <li><a href="#t2" class="nav-sub">② Token-level pruning</a></li>
     <li><a href="#t3" class="nav-sub">③ KV cache eviction</a></li>
@@ -287,6 +287,9 @@ footer a { color: var(--hint); }
     <div class="nav-divider"></div>
     <li><a href="#comparison" class="nav-section">Comparison</a></li>
     <li><a href="#tradeoffs"  class="nav-section">Tradeoffs</a></li>
+    <div class="nav-divider"></div>
+    <li><a href="#why"       class="nav-section">Why server-side?</a></li>
+    <li><a href="#providers"  class="nav-section">Provider landscape</a></li>
   </ul>
 </nav>
 
@@ -294,12 +297,12 @@ footer a { color: var(--hint); }
 <main>
 
 <h1>Server-side compaction</h1>
-<p class="subtitle">How LLM agents keep running without hitting the context wall</p>
+<p class="subtitle">A quick survey of the techniques — then why <em>where</em> compaction runs turns out to matter a lot.</p>
 
 <!-- ═══ PROBLEM ═══ -->
-<h2 id="problem" class="first">The problem: context windows fill up</h2>
+<h2 id="problem" class="first">Context windows fill up</h2>
 
-<p>Every LLM operates within a finite <em>context window</em> — the total number of tokens it can see at once. Short conversations never stress this limit. But LLM agents are different: they read files, call tools, reason through results, and iterate — sometimes for hours. Each step burns tokens.</p>
+<p>Agents are different from chat. They read files, call tools, reason through results, and iterate — sometimes for hours. Each step burns tokens, and the window is finite.</p>
 
 <div class="card-grid">
   <div class="card"><p class="head">Finite window sizes</p><p class="body">Claude 3.x: 200K · GPT-4o: 128K · Gemini 1.5: up to 1M tokens. Large, but not infinite.</p></div>
@@ -552,13 +555,55 @@ footer a { color: var(--hint); }
 
 <!-- ═══ TRADEOFFS ═══ -->
 <h2 id="tradeoffs">Universal tradeoffs</h2>
-<p>Every compaction technique navigates the same three-way tension. There is no free lunch.</p>
+<p>Every technique navigates the same three-way tension regardless of where it runs.</p>
 <div class="card-grid">
   <div class="card"><p class="head">Fidelity ↔ Size</p><p class="body">Keeping more information costs more tokens. You cannot compress without some loss. The question is always which information to sacrifice.</p></div>
   <div class="card"><p class="head">Latency ↔ Quality</p><p class="body">Better summaries require more inference time. Fast compaction (truncation) is instant but lossy. Careful summarization takes seconds.</p></div>
   <div class="card"><p class="head">Complexity ↔ Control</p><p class="body">Sophisticated techniques (paging, KV eviction) give better results but are harder to implement, debug, and reason about in production.</p></div>
 </div>
-<p>The practical recommendation for most production agents today: start with <strong>hierarchical summarization</strong> — it's well-understood, API-compatible, and production-proven. Layer in token-level pruning for high-density prompts. Consider virtual paging only when tasks genuinely span thousands of steps or require recalling arbitrary past events.</p>
+
+<!-- ═══ WHY SERVER-SIDE ═══ -->
+<h2 id="why">Why server-side?</h2>
+
+<p>Look back at those four techniques. Notice something: they don't all live in the same place. Hierarchical summarization and virtual paging can run in client code. Token-level pruning needs a separate compressor model. KV cache eviction requires access to the model's internal attention state — which means it can only ever run on the server that's doing inference.</p>
+
+<p>The question of <em>where</em> compaction runs determines which techniques are even available. And beyond access, there are two other pressures pushing compaction toward the server.</p>
+
+<div class="card-grid">
+  <div class="card">
+    <p class="head">① Infrastructure access</p>
+    <p class="body">KV eviction, attention-weighted pruning, and StreamingLLM require the inference layer. Client code calling an API can never reach these. The server gets the full technique menu; the client gets the application-layer subset.</p>
+  </div>
+  <div class="card">
+    <p class="head">② Scale economics</p>
+    <p class="body">A provider serving billions of tokens per day has direct financial incentive to compact. Client-side compaction is implemented once per app, with varying quality. Server-side compaction ships to every caller at once — and the provider's cost structure makes the investment worthwhile at a level no single app can justify.</p>
+  </div>
+  <div class="card">
+    <p class="head">③ Automation guarantee</p>
+    <p class="body">Agents running unattended for hours can't pause for a human to trigger compaction. Client-side compaction requires the client to implement it correctly on every run. Server-side compaction is invisible and unconditional — it fires whether or not the caller thought about it.</p>
+  </div>
+</div>
+
+<p>Client-side compaction is a workaround. Server-side compaction is a feature. The techniques are often similar; the reliability and access guarantees are not.</p>
+
+<div class="card" style="margin-top:1rem">
+  <p style="font-size:12px;color:var(--muted);margin-bottom:12px;font-weight:500">Where each technique actually lives in the stack</p>
+  <div id="stack-diagram"></div>
+</div>
+
+<!-- ═══ PROVIDER LANDSCAPE ═══ -->
+<h2 id="providers">Provider landscape</h2>
+<p>Having seen the techniques and the motivation, the interesting question is: who has actually moved compaction to the server, and how? Different providers have landed in very different places. Some do it transparently; some expose an explicit API; some leave it entirely to you.</p>
+
+<div class="tabs" id="provider-tabs">
+  <button class="tab on"  onclick="showProvider(0,this)">Anthropic</button>
+  <button class="tab"     onclick="showProvider(1,this)">OpenAI</button>
+  <button class="tab"     onclick="showProvider(2,this)">Google</button>
+  <button class="tab"     onclick="showProvider(3,this)">LangChain</button>
+  <button class="tab"     onclick="showProvider(4,this)">MemGPT / Letta</button>
+  <button class="tab"     onclick="showProvider(5,this)">Zep / Mem0</button>
+</div>
+<div class="card" id="provider-panel"></div>
 
 <footer>
   <p>References: H2O — Zhang et al., NeurIPS 2023 · SnapKV — Li et al., 2024 · StreamingLLM — Xiao et al., 2023 · MemGPT — Packer et al., 2023 · LLMLingua — Jiang et al., 2023</p>
@@ -842,6 +887,138 @@ function showPage(i,el){
   document.getElementById('page-note').textContent=s.note;
 }
 showPage(0,document.querySelector('#page-tabs .tab'));
+
+/* ── Stack diagram ────────────────────────────────── */
+(function(){
+  const layers=[
+    {label:'Application layer',color:'var(--green)',techniques:['Hierarchical summarization','Message-level importance scoring','Virtual paging (page-out trigger)'],who:'Your code, LangChain, LlamaIndex'},
+    {label:'Prompt / token layer',color:'var(--purple)',techniques:['Token-level pruning (LLMLingua)','Selective retention'],who:'Compressor model runs at request time'},
+    {label:'Model inference layer',color:'var(--blue)',techniques:['KV cache eviction (H2O, SnapKV)','Attention sink preservation (StreamingLLM)'],who:'Model provider only — not accessible via API'},
+    {label:'Memory infrastructure',color:'var(--amber)',techniques:['Vector store (Zep, Mem0, Weaviate)','MemGPT page store'],who:'External service — accessible to any layer'},
+  ];
+  const d=document.getElementById('stack-diagram');
+  layers.forEach(l=>{
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:flex-start;gap:12px;margin-bottom:8px';
+    const lbl=document.createElement('div');
+    lbl.style.cssText=`font-size:11px;font-weight:500;color:${l.color};white-space:nowrap;min-width:150px;padding-top:3px`;
+    lbl.textContent=l.label;
+    const right=document.createElement('div');
+    right.style.cssText='flex:1';
+    const chips=document.createElement('div');
+    chips.style.cssText='display:flex;flex-wrap:wrap;gap:5px;margin-bottom:3px';
+    l.techniques.forEach(t=>{
+      const c=document.createElement('span');
+      c.style.cssText=`font-size:11px;padding:2px 9px;border-radius:99px;border:0.5px solid ${l.color};color:${l.color};background:${l.color}18`;
+      c.textContent=t; chips.appendChild(c);
+    });
+    const who=document.createElement('div');
+    who.style.cssText='font-size:11px;color:var(--hint)';
+    who.textContent=l.who;
+    right.appendChild(chips); right.appendChild(who);
+    row.appendChild(lbl); row.appendChild(right);
+    d.appendChild(row);
+  });
+})();
+
+/* ── Provider landscape ───────────────────────────── */
+const providerData=[
+  {
+    name:'Anthropic (Claude API + Claude Code)',
+    badge:'b-purple',badgeText:'Hierarchical + transparent',
+    body:`<p style="font-size:13px;margin-bottom:10px">Anthropic ships two compaction mechanisms:</p>
+    <div class="tier tier-e" style="margin-bottom:8px">
+      <div class="tlabel">Claude Code — tiered summarization</div>
+      <p>When a coding session approaches ~70% of the context window, Claude Code automatically compresses older turns into a tiered structure: verbatim recent turns → episode summaries → extracted key facts. The trigger and compression happen server-side; the client just keeps talking.</p>
+    </div>
+    <div class="tier tier-v" style="margin-bottom:8px">
+      <div class="tlabel">Context summarization API (beta)</div>
+      <p>Exposes compaction as an explicit API call: <code style="font-size:11px;font-family:var(--mono)">POST /v1/messages/summarize</code>. Returns a compressed conversation that can replace the original messages array. Lets client code trigger compaction on its own schedule while the actual compression logic runs on Anthropic's infrastructure.</p>
+    </div>
+    <p style="font-size:12px;color:var(--muted)">Key distinction: compaction quality is model-generated (Claude summarizes Claude's own output), and the tier logic is maintained by Anthropic — not reimplemented per app.</p>`,
+  },
+  {
+    name:'OpenAI (GPT-4o / Responses API)',
+    badge:'b-gray',badgeText:'Client responsibility',
+    body:`<p style="font-size:13px;margin-bottom:10px">OpenAI does not provide built-in compaction. Context management is left entirely to the caller.</p>
+    <div class="tier tier-f" style="margin-bottom:8px">
+      <div class="tlabel">What they do provide</div>
+      <p><strong>Prompt caching</strong> — repeated prompt prefixes are cached at the KV level, reducing latency and cost for stable system prompts. This is not compaction; it's cache reuse. The context window is still finite and still fills up.</p>
+    </div>
+    <div class="tier tier-e" style="margin-bottom:8px">
+      <div class="tlabel">What that means in practice</div>
+      <p>Every OpenAI-based agent must implement its own truncation, summarization, or paging logic. LangChain, LlamaIndex, and AutoGPT all ship their own compaction — and all implement it differently, with different bugs.</p>
+    </div>
+    <p style="font-size:12px;color:var(--muted)">The Responses API (2025) added built-in conversation state management, which handles turn storage but still doesn't compact old turns — it just abstracts the message array.</p>`,
+  },
+  {
+    name:'Google (Gemini / AI Studio)',
+    badge:'b-blue',badgeText:'Context caching (explicit)',
+    body:`<p style="font-size:13px;margin-bottom:10px">Google takes a different angle: instead of compressing context, they make it cheap to <em>reuse</em> large static contexts.</p>
+    <div class="tier tier-v" style="margin-bottom:8px">
+      <div class="tlabel">Context caching API</div>
+      <p>Gemini lets you upload a large context (documents, system prompts, tool definitions) once and reference it by cache ID in subsequent requests. Cached tokens are billed at ~25% of the normal input token rate. Caches TTL from 1 minute to 24 hours.</p>
+    </div>
+    <div class="tier tier-f" style="margin-bottom:8px">
+      <div class="tlabel">Implicit long context</div>
+      <p>Gemini 1.5 Pro supports up to 1M tokens natively. For many use cases, this sidesteps compaction entirely — just fit everything in. For true long-running agents it still fills up, and there is no automatic summarization.</p>
+    </div>
+    <p style="font-size:12px;color:var(--muted)">Google's bet is "bigger window + cheaper cache" rather than "smarter compression." Useful for document-heavy tasks; less useful for indefinite agent runs where new context accumulates continuously.</p>`,
+  },
+  {
+    name:'LangChain / LlamaIndex',
+    badge:'b-amber',badgeText:'Framework layer (app-side)',
+    body:`<p style="font-size:13px;margin-bottom:10px">Framework compaction happens at the application layer — above any specific model provider. Works with any backend, but can't access KV cache or model internals.</p>
+    <div class="tier tier-e" style="margin-bottom:8px">
+      <div class="tlabel">LangChain — ConversationSummaryBufferMemory</div>
+      <p>Keeps recent turns verbatim up to a token budget, then summarizes older turns into a running summary injected at the top of context. Configurable buffer size and summary model. Roughly equivalent to a 2-tier hierarchical approach.</p>
+    </div>
+    <div class="tier tier-v" style="margin-bottom:8px">
+      <div class="tlabel">LlamaIndex — Chat memory buffer</div>
+      <p>Token-limited message buffer with configurable overflow strategy: truncate (drop oldest), summarize (call an LLM on the overflow), or externalize (push to a VectorStoreIndex for retrieval). The retrieval path is essentially virtual paging.</p>
+    </div>
+    <p style="font-size:12px;color:var(--muted)">Advantage: provider-agnostic, highly configurable. Disadvantage: every app owns its compaction quality. Summary quality is only as good as the prompt passed to the summarizer model.</p>`,
+  },
+  {
+    name:'MemGPT / Letta',
+    badge:'b-green',badgeText:'OS-style virtual paging',
+    body:`<p style="font-size:13px;margin-bottom:10px">MemGPT (now Letta) is the canonical implementation of virtual paging for LLM agents. The entire architecture is designed around treating the context window like CPU RAM.</p>
+    <div class="tier tier-v" style="margin-bottom:8px">
+      <div class="tlabel">Core memory (in-context)</div>
+      <p>A fixed block at the top of every context: persona description, user description, and a scratchpad the agent can freely edit via function calls. Always present. Never evicted.</p>
+    </div>
+    <div class="tier tier-e" style="margin-bottom:8px">
+      <div class="tlabel">Archival memory (external)</div>
+      <p>Unlimited storage backed by a vector database. The agent calls <code style="font-size:11px;font-family:var(--mono)">archival_memory_insert()</code> and <code style="font-size:11px;font-family:var(--mono)">archival_memory_search()</code> as function calls — the paging in and out is agent-initiated, not automatic.</p>
+    </div>
+    <p style="font-size:12px;color:var(--muted)">Key insight: the agent itself decides what to remember and what to retrieve — which requires the model to be explicitly trained or prompted for this self-management behavior. Works well for persistent personal agents; adds overhead for task-focused coding or analysis agents.</p>`,
+  },
+  {
+    name:'Zep / Mem0',
+    badge:'b-coral',badgeText:'Memory-as-a-service',
+    body:`<p style="font-size:13px;margin-bottom:10px">A newer category: external memory services that any application can call, rather than in-framework memory modules.</p>
+    <div class="tier tier-v" style="margin-bottom:8px">
+      <div class="tlabel">Zep — temporal knowledge graph</div>
+      <p>Ingests conversation turns and tool outputs, extracts entities and relationships, and stores them in a temporal graph. At query time, returns a structured memory context ranked by relevance and recency. Compaction happens during ingestion — Zep summarizes and deduplicates facts as they arrive.</p>
+    </div>
+    <div class="tier tier-e" style="margin-bottom:8px">
+      <div class="tlabel">Mem0 — hybrid vector + graph memory</div>
+      <p>Combines vector similarity search with an entity graph to retrieve both semantically similar past turns and structurally related facts. Designed to be dropped in as a memory backend for any agent framework. Supports user-scoped memory that persists across separate sessions.</p>
+    </div>
+    <p style="font-size:12px;color:var(--muted)">The key advantage over in-framework memory: memory persists across agent restarts and separate sessions, and the extraction / deduplication logic is maintained by the service, not you.</p>`,
+  },
+];
+function showProvider(i,el){
+  document.querySelectorAll('#provider-tabs .tab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+  const p=providerData[i];
+  document.getElementById('provider-panel').innerHTML=
+    `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+       <span style="font-size:14px;font-weight:500">${p.name}</span>
+       <span class="badge ${p.badge}">${p.badgeText}</span>
+     </div>${p.body}`;
+}
+showProvider(0,document.querySelector('#provider-tabs .tab'));
 
 /* ── Scrollspy ────────────────────────────────────── */
 const spy=new IntersectionObserver(entries=>{
