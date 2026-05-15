@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Server-Side Compaction — LLMs &amp; Agents</title>
+<style>
+:root {
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --bg: #fafaf8;
+  --bg2: #f0ede8;
+  --surface: #ffffff;
+  --border: #e0ddd8;
+  --border2: #c8c5be;
+  --text: #1a1a17;
+  --muted: #66655e;
+  --hint: #9e9d96;
+  --purple: #534AB7;
+  --purple-bg: #EEEDFE;
+  --purple-text: #3C3489;
+  --green: #0F6E56;
+  --green-bg: #E1F5EE;
+  --green-mid: #1D9E75;
+  --amber: #854F0B;
+  --amber-bg: #FAEEDA;
+  --red: #A32D2D;
+  --red-bg: #FCEBEB;
+  --blue: #185FA5;
+  --blue-bg: #E6F1FB;
+  --blue-mid: #378ADD;
+  --teal-bg: #E1F5EE;
+  --coral: #993C1D;
+  --coral-bg: #FAECE7;
+  --sidebar-w: 230px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #181816;
+    --bg2: #222220;
+    --surface: #26261f;
+    --border: #363632;
+    --border2: #484844;
+  }
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; font-size: 15px; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  min-height: 100vh;
+  line-height: 1.65;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────── */
+nav {
+  width: var(--sidebar-w);
+  min-height: 100vh;
+  background: var(--surface);
+  border-right: 0.5px solid var(--border);
+  padding: 1.75rem 1.1rem;
+  position: fixed;
+  top: 0; left: 0;
+  overflow-y: auto;
+  z-index: 20;
+}
+.brand { margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 0.5px solid var(--border); }
+.brand strong { font-size: 14px; font-weight: 500; display: block; }
+.brand small { font-size: 11px; color: var(--muted); }
+nav ul { list-style: none; }
+nav li { margin-bottom: 1px; }
+nav a {
+  display: block; font-size: 12px; color: var(--muted);
+  text-decoration: none; padding: 5px 9px; border-radius: 7px;
+  transition: background 0.12s, color 0.12s;
+}
+nav a:hover { background: var(--bg2); color: var(--text); }
+nav a.active { background: var(--purple-bg); color: var(--purple-text); }
+nav a.nav-section { font-weight: 500; color: var(--text); margin-top: 10px; }
+nav a.nav-sub { padding-left: 20px; }
+.nav-divider { height: 0.5px; background: var(--border); margin: 8px 0; }
+
+/* ── Main ───────────────────────────────────────────────── */
+main {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  padding: 3.5rem 4.5rem 8rem;
+  max-width: 900px;
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 800px) {
+  nav { display: none; }
+  main { margin-left: 0; padding: 2rem 1.5rem 5rem; }
+}
+
+/* ── Type ───────────────────────────────────────────────── */
+h1 { font-size: 30px; font-weight: 500; margin-bottom: 6px; line-height: 1.25; }
+.subtitle { font-size: 15px; color: var(--muted); margin-bottom: 2.5rem; }
+h2 {
+  font-size: 20px; font-weight: 500; margin: 3.5rem 0 1rem;
+  padding-top: 3.5rem; border-top: 0.5px solid var(--border);
+}
+h2.first { border-top: none; padding-top: 0; margin-top: 0; }
+h3 { font-size: 16px; font-weight: 500; margin: 2rem 0 0.6rem; }
+p { margin-bottom: 0.75rem; }
+p.muted { color: var(--muted); font-size: 14px; }
+em { font-style: italic; }
+strong { font-weight: 500; }
+
+/* ── Cards ──────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 1.1rem 1.3rem;
+  margin-bottom: 1rem;
+}
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 1rem;
+}
+.card p.head { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.card p.body { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* ── Badges ─────────────────────────────────────────────── */
+.badge {
+  display: inline-block; font-size: 10px; font-weight: 500;
+  padding: 2px 8px; border-radius: 99px; vertical-align: middle;
+}
+.b-purple { background: var(--purple-bg); color: var(--purple-text); }
+.b-green  { background: var(--green-bg);  color: var(--green); }
+.b-amber  { background: var(--amber-bg);  color: var(--amber); }
+.b-red    { background: var(--red-bg);    color: var(--red); }
+.b-blue   { background: var(--blue-bg);   color: var(--blue); }
+.b-gray   { background: var(--bg2);       color: var(--muted); }
+.b-coral  { background: var(--coral-bg);  color: var(--coral); }
+
+/* ── Context blocks ──────────────────────────────────────── */
+.ctx-col { display: flex; flex-direction: column; gap: 3px; }
+.ctx {
+  height: 25px; border-radius: 4px;
+  display: flex; align-items: center; padding: 0 10px;
+  font-size: 11px; font-weight: 500;
+  white-space: nowrap; overflow: hidden;
+  transition: all 0.35s;
+}
+.c-sys    { background: #534AB7; color: #EEEDFE; }
+.c-user   { background: #0F6E56; color: #E1F5EE; }
+.c-asst   { background: #3C3489; color: #CECBF6; }
+.c-tool   { background: #854F0B; color: #FAEEDA; }
+.c-result { background: #3C3489; color: #CECBF6; }
+.c-sum    { background: #185FA5; color: #E6F1FB; }
+.c-fact   { background: #534AB7; color: #EEEDFE; }
+.c-epi    { background: #1D9E75; color: #E1F5EE; }
+.c-empty  { background: var(--bg2); border: 0.5px dashed var(--border2); color: var(--hint); }
+.c-warn   { background: #A32D2D; color: #FCEBEB; }
+.c-drop   { background: var(--bg2); color: var(--hint); text-decoration: line-through; opacity: 0.4; }
+.c-page   { background: #185FA5; color: #E6F1FB; border: 1.5px solid #378ADD; }
+
+/* ── Bar ────────────────────────────────────────────────── */
+.bar-row { display: flex; align-items: center; gap: 10px; margin: 0.6rem 0; }
+.bar-track { flex: 1; height: 8px; background: var(--bg2); border-radius: 4px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 4px; transition: width 0.35s, background 0.35s; }
+
+/* ── Tabs ───────────────────────────────────────────────── */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 1rem; }
+.tab {
+  background: transparent; border: 0.5px solid var(--border);
+  border-radius: 7px; padding: 5px 14px; font-size: 13px;
+  cursor: pointer; color: var(--muted); font-family: var(--sans);
+  transition: all 0.13s;
+}
+.tab:hover { background: var(--bg2); color: var(--text); }
+.tab.on { background: var(--purple-bg); color: var(--purple-text); border-color: transparent; font-weight: 500; }
+
+/* ── Buttons ────────────────────────────────────────────── */
+button {
+  background: transparent; border: 0.5px solid var(--border2);
+  border-radius: 7px; padding: 6px 15px; font-size: 13px;
+  cursor: pointer; color: var(--text); font-family: var(--sans);
+  transition: background 0.13s;
+}
+button:hover { background: var(--bg2); }
+button:disabled { opacity: 0.4; cursor: default; }
+
+/* ── Pros / cons ─────────────────────────────────────────── */
+.pc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 1rem 0; }
+.pc-box { background: var(--surface); border: 0.5px solid var(--border); border-radius: 10px; padding: 0.8rem 1rem; }
+.pc-box h4 { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+.pc-box.pros h4 { color: var(--green); }
+.pc-box.cons h4 { color: var(--red); }
+.pc-box ul { list-style: none; }
+.pc-box li { font-size: 13px; color: var(--muted); padding: 3px 0; display: flex; gap: 7px; }
+.pc-box li::before { font-size: 13px; flex-shrink: 0; }
+.pros li::before { content: '✓'; color: var(--green); }
+.cons li::before { content: '✗'; color: var(--red); }
+
+/* ── Tiers ───────────────────────────────────────────────── */
+.tier { border-left: 3px solid; padding: 9px 14px; margin-bottom: 9px; border-radius: 0 9px 9px 0; }
+.tier-v  { border-color: var(--green-mid); background: #1D9E7511; }
+.tier-e  { border-color: var(--purple);    background: #534AB711; }
+.tier-f  { border-color: var(--blue-mid);  background: #378ADD11; }
+.tier .tlabel { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+.tier-v .tlabel { color: var(--green); }
+.tier-e .tlabel { color: var(--purple); }
+.tier-f .tlabel { color: var(--blue); }
+.tier p { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* ── Importance rows ─────────────────────────────────────── */
+.imp-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 8px; margin-bottom: 4px;
+  font-size: 12px; border: 0.5px solid var(--border);
+  background: var(--surface); transition: opacity 0.3s;
+}
+.imp-row.dim { opacity: 0.28; }
+.score-dot {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 500; flex-shrink: 0;
+}
+.s-high { background: var(--green-bg);  color: var(--green); }
+.s-med  { background: var(--amber-bg);  color: var(--amber); }
+.s-low  { background: var(--red-bg);    color: var(--red); }
+
+/* ── Comparison table ────────────────────────────────────── */
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 1rem 0; }
+.cmp-table th {
+  text-align: left; padding: 8px 12px;
+  background: var(--bg2); font-weight: 500; font-size: 11px;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+}
+.cmp-table td { padding: 9px 12px; border-bottom: 0.5px solid var(--border); vertical-align: top; }
+.cmp-table td:first-child { font-weight: 500; }
+.cmp-table tr:last-child td { border-bottom: none; }
+
+/* ── LLMLingua box ───────────────────────────────────────── */
+.token { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 12px; margin: 2px; font-family: var(--mono); transition: all 0.4s; }
+.tok-keep { background: var(--green-bg);  color: var(--green); }
+.tok-drop { background: var(--red-bg);    color: var(--red);   text-decoration: line-through; opacity: 0.45; }
+.tok-neu  { background: var(--bg2);       color: var(--muted); }
+
+/* ── KV attention cell ───────────────────────────────────── */
+.kv-grid { display: grid; gap: 2px; }
+.kv-cell { height: 28px; border-radius: 3px; transition: all 0.45s; position: relative; }
+
+/* ── Footer ──────────────────────────────────────────────── */
+footer {
+  margin-top: 5rem; padding-top: 2rem;
+  border-top: 0.5px solid var(--border);
+  font-size: 12px; color: var(--hint);
+}
+footer a { color: var(--hint); }
+
+/* ── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ SIDEBAR ════════════════════ -->
+<nav id="sidebar">
+  <div class="brand">
+    <strong>Server-Side Compaction</strong>
+    <small>LLMs &amp; LLM Agents</small>
+  </div>
+  <ul>
+    <li><a href="#problem"  class="nav-section">The problem</a></li>
+    <li><a href="#naive"    class="nav-section">Naive solutions</a></li>
+    <div class="nav-divider"></div>
+    <li><a href="#techniques" class="nav-section">Modern techniques</a></li>
+    <li><a href="#t1" class="nav-sub">① Hierarchical summarization</a></li>
+    <li><a href="#t2" class="nav-sub">② Token-level pruning</a></li>
+    <li><a href="#t3" class="nav-sub">③ KV cache eviction</a></li>
+    <li><a href="#t4" class="nav-sub">④ Virtual paging</a></li>
+    <div class="nav-divider"></div>
+    <li><a href="#comparison" class="nav-section">Comparison</a></li>
+    <li><a href="#tradeoffs"  class="nav-section">Tradeoffs</a></li>
+  </ul>
+</nav>
+
+<!-- ════════════════════ MAIN ════════════════════ -->
+<main>
+
+<h1>Server-side compaction</h1>
+<p class="subtitle">How LLM agents keep running without hitting the context wall</p>
+
+<!-- ═══ PROBLEM ═══ -->
+<h2 id="problem" class="first">The problem: context windows fill up</h2>
+
+<p>Every LLM operates within a finite <em>context window</em> — the total number of tokens it can see at once. Short conversations never stress this limit. But LLM agents are different: they read files, call tools, reason through results, and iterate — sometimes for hours. Each step burns tokens.</p>
+
+<div class="card-grid">
+  <div class="card"><p class="head">Finite window sizes</p><p class="body">Claude 3.x: 200K · GPT-4o: 128K · Gemini 1.5: up to 1M tokens. Large, but not infinite.</p></div>
+  <div class="card"><p class="head">Agents are token-hungry</p><p class="body">A single file read: 2–5K tokens. Compiler output, test logs, reasoning chains — it accumulates fast.</p></div>
+  <div class="card"><p class="head">The failure mode</p><p class="body">At the limit the agent errors out, loses early context, or forces manual intervention — breaking automation.</p></div>
+</div>
+
+<p>Watch a typical agentic context fill during a coding task:</p>
+<div class="card">
+  <div id="fill-rows" class="ctx-col" style="margin-bottom:10px"></div>
+  <div class="bar-row">
+    <div class="bar-track"><div class="bar-fill" id="fill-bar" style="width:0;background:var(--green-mid)"></div></div>
+    <span id="fill-pct" style="font-size:12px;color:var(--muted);min-width:34px">0%</span>
+    <button onclick="runFill()">Fill →</button>
+    <button onclick="resetFill()">Reset</button>
+  </div>
+  <p id="fill-warn" style="font-size:12px;color:var(--red);margin-top:6px;min-height:18px"></p>
+</div>
+
+<!-- ═══ NAIVE ═══ -->
+<h2 id="naive">Naive solutions — and why they fail</h2>
+<p>Three approaches look obvious. All share a fatal flaw: they destroy information the agent needs, or they break automation entirely.</p>
+
+<div class="tabs" id="naive-tabs">
+  <button class="tab on" onclick="showNaive(0,this)">Hard truncation</button>
+  <button class="tab"    onclick="showNaive(1,this)">Sliding window</button>
+  <button class="tab"    onclick="showNaive(2,this)">Manual summary</button>
+</div>
+<div class="card" id="naive-panel"></div>
+
+<!-- ═══ TECHNIQUES ═══ -->
+<h2 id="techniques">Modern compaction techniques</h2>
+<p>Four techniques represent the current state of the art. They operate at different layers of the stack — application, token, model, and infrastructure — and make different tradeoffs between information fidelity, latency, and implementation complexity.</p>
+
+<!-- ─── T1: HIERARCHICAL ─── -->
+<h3 id="t1">① Hierarchical (tiered) summarization</h3>
+<p>The most widely deployed technique in production agents. Instead of collapsing everything into one flat summary, hierarchical compaction maintains <em>multiple memory tiers at different levels of detail</em>. Recent context stays verbatim; older context is progressively compressed into episode summaries and then into extracted key facts. Each tier is regenerated incrementally — only the new chunk is summarized and folded into the existing tier, so there's no expensive full re-summarization on every step.</p>
+<p>Used by <strong>Claude Code</strong>, <strong>LangChain's</strong> ConversationSummaryBufferMemory, and <strong>LlamaIndex</strong>'s chat memory. The trigger is typically token budget: "when the window reaches 70–80%, summarize the oldest chunk and fold it into Tier 2."</p>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="tier tier-v"><div class="tlabel">Tier 1 — verbatim</div><p>Last N turns kept exactly. Full fidelity — exact error messages, line numbers, tool outputs.</p></div>
+  </div>
+  <div class="card">
+    <div class="tier tier-e"><div class="tlabel">Tier 2 — episodes</div><p>Older turns compressed to per-phase summaries. "Explored auth module, found 3 issues, fixed 2."</p></div>
+  </div>
+  <div class="card">
+    <div class="tier tier-f"><div class="tlabel">Tier 3 — facts</div><p>Key decisions, goals, constraints extracted. Always injected. Survives indefinitely.</p></div>
+  </div>
+</div>
+
+<p>Click a tier to see what it contains during a long coding session:</p>
+<div class="card">
+  <div class="tabs" id="tier-tabs">
+    <button class="tab on" onclick="showTier(0,this)">Tier 1 — verbatim</button>
+    <button class="tab"    onclick="showTier(1,this)">Tier 2 — episodes</button>
+    <button class="tab"    onclick="showTier(2,this)">Tier 3 — facts</button>
+  </div>
+  <div id="tier-panel" class="ctx-col"></div>
+  <p id="tier-note" class="muted" style="font-size:12px;margin-top:10px"></p>
+</div>
+
+<div class="pc-grid">
+  <div class="pc-box pros"><h4>Advantages</h4><ul>
+    <li>Recent context stays high-fidelity</li>
+    <li>Goals and constraints always present</li>
+    <li>Incremental — no expensive full re-summarize</li>
+    <li>Production-proven in Claude Code, LangChain</li>
+  </ul></div>
+  <div class="pc-box cons"><h4>Limitations</h4><ul>
+    <li>Tier boundaries need tuning per use case</li>
+    <li>Summary quality is model-dependent</li>
+    <li>Still lossy — details vanish over time</li>
+  </ul></div>
+</div>
+
+<!-- ─── T2: LLMLINGUA / TOKEN PRUNING ─── -->
+<h3 id="t2">② Token-level pruning (LLMLingua / Selective retention)</h3>
+<p>Rather than summarizing at the message level, token-level pruning operates at the <em>individual token or sentence level</em>. Each token or sentence is assigned an importance score — typically derived from a smaller "compressor" model's perplexity signal (low perplexity = predictable = low information = pruneable). High-scoring tokens are kept verbatim; low-scoring ones are dropped. The result is a compressed prompt that preserves the semantic content of the original with minimal structural change.</p>
+<p><strong>LLMLingua</strong> (Microsoft, 2023) and its successor <strong>LongLLMLingua</strong> achieve 3–20× compression ratios with less than 5% performance drop on many benchmarks. A separate approach — <strong>importance-scored selective retention</strong> — works at the message level: assign each turn a role-based score (goal-setting turns score high, filler turns score low) and discard below the threshold.</p>
+
+<div class="card">
+  <p style="font-size:12px;color:var(--muted);margin-bottom:10px">LLMLingua token scoring — each token gets a perplexity score. Low-information tokens are pruned. Click to simulate:</p>
+  <div id="token-demo" style="line-height:2.2;margin-bottom:12px"></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button onclick="pruneTokens()">Prune low-information tokens</button>
+    <button onclick="resetTokens()">Reset</button>
+  </div>
+  <p id="token-note" class="muted" style="font-size:12px;margin-top:8px"></p>
+</div>
+
+<div class="card">
+  <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Message-level importance scoring — drag the threshold to see which turns survive:</p>
+  <div id="imp-list"></div>
+  <div class="bar-row" style="margin-top:10px">
+    <label style="font-size:12px;color:var(--muted);white-space:nowrap">Retention threshold</label>
+    <input type="range" min="1" max="5" value="3" id="imp-slider" oninput="updateImp(this.value)" style="flex:1">
+    <span id="imp-label" style="font-size:12px;font-weight:500;min-width:72px;text-align:right"></span>
+  </div>
+  <p id="imp-note" class="muted" style="font-size:12px;margin-top:6px"></p>
+</div>
+
+<div class="pc-grid">
+  <div class="pc-box pros"><h4>Advantages</h4><ul>
+    <li>Fine-grained — preserves high-signal tokens</li>
+    <li>Works at application layer, no model access needed</li>
+    <li>3–20× compression with small quality drop</li>
+    <li>Compositional — can combine with summarization</li>
+  </ul></div>
+  <div class="pc-box cons"><h4>Limitations</h4><ul>
+    <li>Requires a compressor model (extra inference cost)</li>
+    <li>Perplexity ≠ task relevance in all cases</li>
+    <li>Disrupts token order in unpredictable ways</li>
+    <li>Heuristic scoring can misclassify critical content</li>
+  </ul></div>
+</div>
+
+<!-- ─── T3: KV CACHE EVICTION ─── -->
+<h3 id="t3">③ KV cache eviction (H2O / SnapKV / StreamingLLM)</h3>
+<p>This technique operates at the <em>model inference layer</em>, not the application layer. During inference, transformers maintain a Key-Value (KV) cache — a compressed representation of all past tokens used by the attention mechanism. These methods shrink the cache by evicting low-attention tokens, giving the model an effectively longer context than its nominal window.</p>
+<ul style="margin:0.5rem 0 0.75rem 1.2rem;font-size:14px;color:var(--muted)">
+  <li style="margin-bottom:4px"><strong>H2O (Heavy-Hitter Oracle)</strong> — identifies tokens that accumulate the most cumulative attention mass ("heavy hitters") across heads and layers, evicting the rest. Achieves ~4× compression.</li>
+  <li style="margin-bottom:4px"><strong>SnapKV</strong> — clusters similar key vectors per attention head and selects representative tokens. Significantly outperforms H2O on long-context benchmarks.</li>
+  <li><strong>StreamingLLM</strong> — always preserves "attention sink" tokens (usually the first 4 tokens) plus a recent sliding window, enabling infinite-length generation without quality collapse.</li>
+</ul>
+
+<div class="card">
+  <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Simulated attention map — darker = more attention weight. "Attention sinks" (first tokens) and query-relevant tokens stay; low-attention tokens are evicted:</p>
+  <div style="overflow-x:auto">
+    <div id="kv-wrap"></div>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+    <button onclick="evictKV()">Evict low-attention tokens (H2O)</button>
+    <button onclick="resetKV()">Reset</button>
+  </div>
+  <p id="kv-note" class="muted" style="font-size:12px;margin-top:8px"></p>
+</div>
+
+<div class="pc-grid">
+  <div class="pc-box pros"><h4>Advantages</h4><ul>
+    <li>Transparent to the application layer</li>
+    <li>No extra inference calls needed</li>
+    <li>Attention sinks preserve coherence</li>
+    <li>H2O achieves ~4× compression; SnapKV exceeds it</li>
+  </ul></div>
+  <div class="pc-box cons"><h4>Limitations</h4><ul>
+    <li>Requires model-level access — not available via API</li>
+    <li>Attention ≠ semantic importance in all cases</li>
+    <li>Behavior varies significantly across architectures</li>
+    <li>Still experimental outside research settings</li>
+  </ul></div>
+</div>
+
+<!-- ─── T4: VIRTUAL PAGING ─── -->
+<h3 id="t4">④ Virtual paging / retrieval-augmented memory (MemGPT-style)</h3>
+<p>Inspired by OS virtual memory, this approach treats the context window as a <em>page in RAM</em> and an external vector database as disk. Old context is serialized and stored externally. When the agent needs information from its history, it retrieves the relevant passages and pages them back in. The agent itself decides when to page out and what to retrieve — typically via function calls to a memory API.</p>
+<p><strong>MemGPT</strong> (Packer et al., 2023) pioneered this pattern. Production implementations include <strong>Zep</strong>, <strong>Mem0</strong>, and various LangGraph memory modules. The key insight: <em>no information is ever permanently deleted</em> — it's just moved to cheaper storage.</p>
+
+<div class="card">
+  <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Step through a full paging cycle:</p>
+  <div class="tabs" id="page-tabs">
+    <button class="tab on" onclick="showPage(0,this)">1. Full</button>
+    <button class="tab"    onclick="showPage(1,this)">2. Page out</button>
+    <button class="tab"    onclick="showPage(2,this)">3. New work</button>
+    <button class="tab"    onclick="showPage(3,this)">4. Retrieve</button>
+  </div>
+  <div id="page-panel" class="ctx-col"></div>
+  <p id="page-note" class="muted" style="font-size:12px;margin-top:10px"></p>
+</div>
+
+<div class="pc-grid">
+  <div class="pc-box pros"><h4>Advantages</h4><ul>
+    <li>Theoretically unlimited memory</li>
+    <li>Nothing permanently deleted — only moved</li>
+    <li>Agent retrieves only what's relevant now</li>
+    <li>Composable with summarization at page-out time</li>
+  </ul></div>
+  <div class="pc-box cons"><h4>Limitations</h4><ul>
+    <li>Retrieval can miss critical context</li>
+    <li>Adds latency on every memory lookup</li>
+    <li>Requires vector DB infrastructure</li>
+    <li>Agent must be trained to use its own memory</li>
+  </ul></div>
+</div>
+
+<!-- ═══ COMPARISON ═══ -->
+<h2 id="comparison">Comparison</h2>
+<table class="cmp-table">
+  <thead>
+    <tr>
+      <th>Technique</th>
+      <th>Layer</th>
+      <th>Info fidelity</th>
+      <th>Complexity</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Hard truncation <span class="badge b-red">naive</span></td>
+      <td>Application</td>
+      <td>Recent only — early context lost</td>
+      <td>Trivial</td>
+      <td>Short tasks, disposable early context</td>
+    </tr>
+    <tr>
+      <td>Sliding window <span class="badge b-red">naive</span></td>
+      <td>Application</td>
+      <td>Recent only — system prompt can scroll off</td>
+      <td>Trivial</td>
+      <td>Rarely appropriate for agents</td>
+    </tr>
+    <tr>
+      <td>Flat summarization <span class="badge b-gray">basic</span></td>
+      <td>Application</td>
+      <td>High-level summary only</td>
+      <td>Low</td>
+      <td>Moderate-length runs, simple tasks</td>
+    </tr>
+    <tr>
+      <td>Hierarchical summarization <span class="badge b-purple">modern</span></td>
+      <td>Application</td>
+      <td>Multi-resolution — recent verbatim + summaries</td>
+      <td>Medium</td>
+      <td>Long agent runs, complex multi-step tasks</td>
+    </tr>
+    <tr>
+      <td>Token-level pruning <span class="badge b-purple">modern</span></td>
+      <td>Application / prompt</td>
+      <td>Selective — high-signal tokens preserved</td>
+      <td>Medium</td>
+      <td>Prompt compression, dense information retrieval</td>
+    </tr>
+    <tr>
+      <td>KV cache eviction <span class="badge b-blue">model-level</span></td>
+      <td>Model inference</td>
+      <td>Attention-weighted — heavy hitters preserved</td>
+      <td>High (needs model access)</td>
+      <td>Research, self-hosted models, inference optimization</td>
+    </tr>
+    <tr>
+      <td>Virtual paging <span class="badge b-green">infrastructure</span></td>
+      <td>Infrastructure</td>
+      <td>Near-lossless — everything stored externally</td>
+      <td>High</td>
+      <td>Very long runs, knowledge-intensive agents</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ═══ TRADEOFFS ═══ -->
+<h2 id="tradeoffs">Universal tradeoffs</h2>
+<p>Every compaction technique navigates the same three-way tension. There is no free lunch.</p>
+<div class="card-grid">
+  <div class="card"><p class="head">Fidelity ↔ Size</p><p class="body">Keeping more information costs more tokens. You cannot compress without some loss. The question is always which information to sacrifice.</p></div>
+  <div class="card"><p class="head">Latency ↔ Quality</p><p class="body">Better summaries require more inference time. Fast compaction (truncation) is instant but lossy. Careful summarization takes seconds.</p></div>
+  <div class="card"><p class="head">Complexity ↔ Control</p><p class="body">Sophisticated techniques (paging, KV eviction) give better results but are harder to implement, debug, and reason about in production.</p></div>
+</div>
+<p>The practical recommendation for most production agents today: start with <strong>hierarchical summarization</strong> — it's well-understood, API-compatible, and production-proven. Layer in token-level pruning for high-density prompts. Consider virtual paging only when tasks genuinely span thousands of steps or require recalling arbitrary past events.</p>
+
+<footer>
+  <p>References: H2O — Zhang et al., NeurIPS 2023 · SnapKV — Li et al., 2024 · StreamingLLM — Xiao et al., 2023 · MemGPT — Packer et al., 2023 · LLMLingua — Jiang et al., 2023</p>
+  <p style="margin-top:4px">Built as a static site. Deploy to GitHub Pages by pushing <code>index.html</code> to a repo and enabling Pages in Settings → Pages → Deploy from branch.</p>
+</footer>
+</main>
+
+<!-- ════════════════════ SCRIPTS ════════════════════ -->
+<script>
+/* ── Fill demo ─────────────────────────────────────── */
+const fillData=[
+  {cls:'c-sys',  t:'System prompt'},
+  {cls:'c-user', t:'User: refactor the auth module, no new deps'},
+  {cls:'c-tool', t:'Tool: read_file(auth.ts)'},
+  {cls:'c-result',t:'Result: 340 lines of code'},
+  {cls:'c-tool', t:'Tool: read_file(user.service.ts)'},
+  {cls:'c-result',t:'Result: 580 lines of code'},
+  {cls:'c-asst', t:'Assistant: plan + reasoning chain'},
+  {cls:'c-tool', t:'Tool: write_file(auth.ts)'},
+  {cls:'c-result',t:'Result: success'},
+  {cls:'c-tool', t:'Tool: run_tests()'},
+  {cls:'c-result',t:'Result: 3 failures (verbose output)'},
+  {cls:'c-asst', t:'Assistant: failure analysis'},
+  {cls:'c-tool', t:'Tool: write_file(auth.ts) — patch'},
+  {cls:'c-result',t:'Result: success'},
+  {cls:'c-tool', t:'Tool: run_tests() again'},
+  {cls:'c-result',t:'Result: 1 failure remaining'},
+  {cls:'c-asst', t:'Assistant: further debug reasoning'},
+  {cls:'c-tool', t:'Tool: read_file(test/auth.spec.ts)'},
+  {cls:'c-result',t:'Result: 200-line test file'},
+  {cls:'c-warn', t:'⚠  Context 91% full — agent approaching limit'},
+];
+let fIdx=0,fTimer=null;
+function renderFill(){
+  const d=document.getElementById('fill-rows'); d.innerHTML='';
+  const pct=Math.round(fIdx/(fillData.length-1)*100);
+  for(let i=0;i<=fIdx;i++){
+    const b=fillData[i],el=document.createElement('div');
+    el.className='ctx '+b.cls; el.textContent=b.t; d.appendChild(el);
+  }
+  const bar=document.getElementById('fill-bar');
+  bar.style.width=pct+'%';
+  bar.style.background=pct>=80?'#E24B4A':pct>=55?'#BA7517':'var(--green-mid)';
+  document.getElementById('fill-pct').textContent=pct+'%';
+  document.getElementById('fill-warn').textContent=
+    pct>=90?'⚠ Context limit approaching — agent will error or lose critical context':
+    pct>=70?'Context filling fast — older turns will be displaced':'';
+}
+function runFill(){if(fTimer)return;fTimer=setInterval(()=>{if(fIdx<fillData.length-1){fIdx++;renderFill();}else{clearInterval(fTimer);fTimer=null;}},320);}
+function resetFill(){clearInterval(fTimer);fTimer=null;fIdx=0;renderFill();}
+renderFill();
+
+/* ── Naive panels ──────────────────────────────────── */
+const naivePanels=[
+  `<p style="font-weight:500;margin-bottom:6px">Hard truncation — drop oldest messages when full</p>
+   <p class="muted" style="font-size:13px;margin-bottom:10px">When the context is full, delete the oldest messages until there is room. Simple FIFO eviction.</p>
+   <div class="ctx-col">
+     <div class="ctx c-sys">System prompt ← preserved</div>
+     <div class="ctx c-drop">User: refactor auth module, no new deps ← DROPPED</div>
+     <div class="ctx c-drop">Tool: read_file(auth.ts) ← DROPPED</div>
+     <div class="ctx c-drop">Result: 340 lines ← DROPPED</div>
+     <div class="ctx c-asst">Assistant: debug reasoning (turn 12)</div>
+     <div class="ctx c-tool">Tool: run_tests()</div>
+     <div class="ctx c-result">Result: 1 failure remaining</div>
+   </div>
+   <p style="font-size:12px;color:var(--red);margin-top:8px">⚠ The agent has forgotten the original user goal and constraints. It may re-do work it already completed.</p>`,
+
+  `<p style="font-weight:500;margin-bottom:6px">Sliding window — keep only the last N tokens</p>
+   <p class="muted" style="font-size:13px;margin-bottom:10px">Maintain a rolling window of the K most recent tokens. Oldest content scrolls off automatically as new content arrives.</p>
+   <div class="ctx-col">
+     <div class="ctx c-drop">System prompt ← scrolled off!</div>
+     <div class="ctx c-drop">User goal and constraints ← scrolled off!</div>
+     <div class="ctx c-asst">Assistant: reasoning (recent)</div>
+     <div class="ctx c-tool">Tool: write_file(auth.ts)</div>
+     <div class="ctx c-result">Result: success</div>
+     <div class="ctx c-tool">Tool: run_tests()</div>
+     <div class="ctx c-result">Result: 1 failure</div>
+   </div>
+   <p style="font-size:12px;color:var(--red);margin-top:8px">⚠ Even the system prompt can scroll off in long runs. The agent loses its own instructions.</p>`,
+
+  `<p style="font-weight:500;margin-bottom:6px">Manual summary — human writes the summary</p>
+   <p class="muted" style="font-size:13px;margin-bottom:10px">When context fills, the system pauses and asks a developer or user to paste a summary of what happened so far.</p>
+   <div class="ctx-col">
+     <div class="ctx c-warn">⚠ Context full — agent halted</div>
+     <div class="ctx c-user">Developer: "Here's a summary of what happened: ..."</div>
+     <div class="ctx c-empty">... agent resumes ...</div>
+   </div>
+   <p style="font-size:12px;color:var(--red);margin-top:8px">⚠ Breaks automation entirely. Requires a human on standby. Completely unworkable for production agents.</p>`,
+];
+function showNaive(i,el){
+  document.querySelectorAll('#naive-tabs .tab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('naive-panel').innerHTML=naivePanels[i];
+}
+showNaive(0,document.querySelector('#naive-tabs .tab'));
+
+/* ── Hierarchical tiers ────────────────────────────── */
+const tierData=[
+  {note:'Exact tool outputs, line numbers, error messages — the model can reason precisely about recent events.',rows:[
+    {cls:'c-tool',t:'Tool: write_file(auth.ts) — patch v2'},
+    {cls:'c-result',t:'Result: file written successfully (312 lines)'},
+    {cls:'c-tool',t:'Tool: run_tests()'},
+    {cls:'c-result',t:'Result: 1 failure — test_token_expiry line 44'},
+    {cls:'c-asst',t:'Assistant: expiry check compares unix epoch, test expects ISO string'},
+    {cls:'c-tool',t:'Tool: read_file(test/auth.spec.ts)'},
+    {cls:'c-result',t:'Result: expects .toISOString() format on line 38'},
+    {cls:'c-asst',t:'Assistant: will fix comparison on line 87 of auth.ts'},
+  ]},
+  {note:'Per-phase summaries of completed work. Enough to understand what was done and decided, without the full verbatim history.',rows:[
+    {cls:'c-epi',t:'[Episode 1] Explored codebase: auth.ts 340L, user.service.ts 580L, 3 test files'},
+    {cls:'c-epi',t:'[Episode 2] Found 3 auth issues: stale token, missing rate limit, wrong expiry format'},
+    {cls:'c-epi',t:'[Episode 3] Fixed stale token and rate limit — 2 of 3 issues resolved'},
+    {cls:'c-epi',t:'[Episode 4] Debugging expiry format mismatch — in progress'},
+  ]},
+  {note:'Extracted key decisions and constraints. Always injected at the top of context. Survives all compaction cycles.',rows:[
+    {cls:'c-fact',t:'GOAL: Refactor auth module to pass full test suite'},
+    {cls:'c-fact',t:'CONSTRAINT: No new external dependencies'},
+    {cls:'c-fact',t:'CONSTRAINT: TypeScript strict mode must pass'},
+    {cls:'c-fact',t:'DECIDED: Use Date.toISOString() format throughout'},
+    {cls:'c-fact',t:'STATUS: 2/3 issues fixed — expiry format in progress'},
+  ]},
+];
+function showTier(i,el){
+  document.querySelectorAll('#tier-tabs .tab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+  const d=tierData[i];
+  const panel=document.getElementById('tier-panel'); panel.innerHTML='';
+  d.rows.forEach(r=>{const e=document.createElement('div');e.className='ctx '+r.cls;e.textContent=r.t;panel.appendChild(e);});
+  document.getElementById('tier-note').textContent=d.note;
+}
+showTier(0,document.querySelector('#tier-tabs .tab'));
+
+/* ── Token pruning (LLMLingua sim) ────────────────── */
+const rawTokens=[
+  'Please','refactor','the','authentication','module','.',
+  'Make','sure','there','are','absolutely','no','new','dependencies','added','.',
+  'The','public','API','must','remain','completely','stable','.',
+  'Run','all','existing','tests','after','every','change','.',
+];
+// High info: refactor, authentication, no, new, dependencies, public, API, stable, Run, tests
+const highInfo=new Set([1,3,7,10,11,12,13,17,19,21,24,27]);
+let pruned=false;
+function renderTokens(p){
+  const d=document.getElementById('token-demo'); d.innerHTML='';
+  rawTokens.forEach((t,i)=>{
+    const span=document.createElement('span');
+    if(p){span.className='token '+(highInfo.has(i)?'tok-keep':'tok-drop');}
+    else{span.className='token tok-neu';}
+    span.textContent=t; d.appendChild(span);
+  });
+}
+function pruneTokens(){pruned=true;renderTokens(true);const kept=[...highInfo].length;document.getElementById('token-note').textContent=`${kept} of ${rawTokens.length} tokens retained (${Math.round(kept/rawTokens.length*100)}%). Dropped: filler words, articles, predictable continuations.`;}
+function resetTokens(){pruned=false;renderTokens(false);document.getElementById('token-note').textContent='';}
+renderTokens(false);
+
+/* ── Importance scoring ────────────────────────────── */
+const impItems=[
+  {score:5,cls:'s-high',type:'Goal',       t:"User: refactor auth, no new deps, keep public API"},
+  {score:5,cls:'s-high',type:'Decision',   t:"Decided: use Date.toISOString() throughout codebase"},
+  {score:4,cls:'s-high',type:'Constraint', t:"User: TypeScript strict mode must pass — no any types"},
+  {score:4,cls:'s-high',type:'Error',      t:"Test failure: expected ISO string, received epoch int (line 44)"},
+  {score:3,cls:'s-med', type:'Tool result',t:"Tool: read_file(auth.ts) → 340 lines [key sections]"},
+  {score:3,cls:'s-med', type:'Tool result',t:"Tool: run_tests() → 3 failures (summarized output)"},
+  {score:2,cls:'s-low', type:'Reasoning',  t:"Assistant: let me think about the best approach here…"},
+  {score:2,cls:'s-low', type:'Reasoning',  t:"Assistant: approach A seems better than approach B"},
+  {score:1,cls:'s-low', type:'Filler',     t:"Assistant: OK, I'll start by reading the relevant files"},
+  {score:1,cls:'s-low', type:'Filler',     t:"Assistant: Got it, running the tests now"},
+];
+function renderImpList(){
+  const d=document.getElementById('imp-list'); d.innerHTML='';
+  impItems.forEach(item=>{
+    const row=document.createElement('div'); row.className='imp-row';
+    row.innerHTML=`<div class="score-dot ${item.cls}">${item.score}</div>
+      <span class="badge b-gray" style="font-size:10px;flex-shrink:0">${item.type}</span>
+      <span style="font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.t}</span>`;
+    d.appendChild(row);
+  });
+}
+function updateImp(v){
+  const labels={1:'critical (≥5)',2:'high (≥4)',3:'medium (≥3)',4:'low (≥2)',5:'keep all'};
+  document.getElementById('imp-label').textContent=labels[v];
+  const threshold=6-parseInt(v);
+  document.querySelectorAll('.imp-row').forEach((el,i)=>el.classList.toggle('dim',impItems[i].score<threshold));
+  const kept=impItems.filter(x=>x.score>=threshold).length;
+  document.getElementById('imp-note').textContent=`Retaining ${kept} of ${impItems.length} turns (${Math.round(kept/impItems.length*100)}% of context)`;
+}
+renderImpList(); updateImp(3);
+
+/* ── KV cache eviction ─────────────────────────────── */
+const kvTokens=['[BOS]','You','are','a','code','agent','.','Task',':','refactor','auth','.','Read','auth','.ts','→','file','lines','…','[query]'];
+let kvEvicted=false;
+function kvWeight(i){
+  // BOS = sink, task tokens high, filler low
+  if(i===0||i===19) return 0.94;
+  if([7,8,9,10,11].includes(i)) return 0.55+Math.random()*0.4;
+  if([1,2,3,4,5,12,13].includes(i)) return 0.3+Math.random()*0.25;
+  return 0.04+Math.random()*0.18;
+}
+let kvW=kvTokens.map((_,i)=>kvWeight(i));
+function renderKV(evict){
+  const wrap=document.getElementById('kv-wrap'); wrap.innerHTML='';
+  const cols=kvTokens.length;
+  const grid=document.createElement('div');
+  grid.style.cssText=`display:grid;grid-template-columns:repeat(${cols},1fr);gap:2px;min-width:${cols*36}px`;
+  // Labels
+  kvTokens.forEach(t=>{
+    const c=document.createElement('div');
+    c.style.cssText='font-size:9px;text-align:center;color:var(--muted);overflow:hidden;white-space:nowrap;padding:0 1px;margin-bottom:2px';
+    c.textContent=t; grid.appendChild(c);
+  });
+  // Cells
+  kvTokens.forEach((_,i)=>{
+    const c=document.createElement('div'); c.className='kv-cell';
+    const w=kvW[i];
+    const isSink=i===0||i===19;
+    const isEvict=evict&&!isSink&&w<0.32;
+    if(isEvict){c.style.background='var(--bg2)';c.style.opacity='0.25';c.style.border='1px dashed var(--border2)';}
+    else{
+      const intensity=Math.round(w*255);
+      const r=Math.round(30+w*200),g=Math.round(158-w*120),b=Math.round(160-w*130);
+      c.style.background=`rgba(${r},${g},${b},${0.15+w*0.85})`;
+      if(isSink) c.style.outline='2px solid var(--purple)';
+    }
+    grid.appendChild(c);
+  });
+  wrap.appendChild(grid);
+  // Legend
+  const leg=document.createElement('div');
+  leg.style.cssText='display:flex;gap:14px;font-size:11px;color:var(--muted);margin-top:8px;flex-wrap:wrap';
+  leg.innerHTML='<span>Low attn → <span style="display:inline-block;width:14px;height:8px;border-radius:2px;vertical-align:middle;background:rgba(30,158,30,0.25)"></span></span>'
+    +'<span>High attn → <span style="display:inline-block;width:14px;height:8px;border-radius:2px;vertical-align:middle;background:rgba(230,38,30,0.9)"></span></span>'
+    +'<span>Outlined = attention sink (always kept)</span>'
+    +(evict?'<span style="color:var(--red)">Faded dashed = evicted from KV cache</span>':'');
+  wrap.appendChild(leg);
+}
+function evictKV(){kvEvicted=true;renderKV(true);const ev=kvW.filter((w,i)=>i!==0&&i!==19&&w<0.32).length;document.getElementById('kv-note').textContent=`${ev} of ${kvTokens.length} tokens evicted (${Math.round(ev/kvTokens.length*100)}%). Attention sinks and heavy-hitter tokens preserved.`;}
+function resetKV(){kvEvicted=false;kvW=kvTokens.map((_,i)=>kvWeight(i));renderKV(false);document.getElementById('kv-note').textContent='';}
+renderKV(false);
+
+/* ── Virtual paging ────────────────────────────────── */
+const pageSteps=[
+  {note:'Context is 95% full. New tool results cannot be added. The agent must page out old content before continuing.',rows:[
+    {cls:'c-sys',t:'System prompt'},
+    {cls:'c-fact',t:'Agent memory block: goal, constraints, status'},
+    {cls:'c-asst',t:'… 40 turns of conversation history …'},
+    {cls:'c-tool',t:'… 25 tool call / result pairs …'},
+    {cls:'c-warn',t:'⚠  95% full — must page out before next step'},
+  ]},
+  {note:'The agent calls memory.store() — serializing older turns to a vector database. The context window is now mostly free.',rows:[
+    {cls:'c-sys',t:'System prompt'},
+    {cls:'c-fact',t:'Agent memory block: goal, constraints, status'},
+    {cls:'c-result',t:'[PAGED OUT] Turns 1–30 → vector store ✓'},
+    {cls:'c-result',t:'[PAGED OUT] Tool results 1–20 → vector store ✓'},
+    {cls:'c-empty',t:'~82% available for new work'},
+  ]},
+  {note:'The agent continues its task. New tool calls and results fill the fresh window. The paged-out history is safe in the vector store.',rows:[
+    {cls:'c-sys',t:'System prompt'},
+    {cls:'c-fact',t:'Agent memory block: goal, constraints, status'},
+    {cls:'c-result',t:'[PAGED OUT] Turns 1–30 → vector store'},
+    {cls:'c-tool',t:'Tool: write_file(auth.ts) — final fix'},
+    {cls:'c-result',t:'Result: success'},
+    {cls:'c-tool',t:'Tool: run_tests()'},
+    {cls:'c-result',t:'Result: all 12 tests passing'},
+  ]},
+  {note:'Agent needs to recall an early constraint. It queries the vector store: "what did the user say about dependencies?" — and the relevant turn is retrieved and injected.',rows:[
+    {cls:'c-sys',t:'System prompt'},
+    {cls:'c-fact',t:'Agent memory block: goal, constraints, status'},
+    {cls:'c-page',t:'[RETRIEVED] User: no new external dependencies'},
+    {cls:'c-page',t:'[RETRIEVED] User: TypeScript strict mode must pass'},
+    {cls:'c-tool',t:'Tool: run_tests()'},
+    {cls:'c-result',t:'Result: all 12 tests passing ✓'},
+    {cls:'c-asst',t:'Assistant: constraints verified — task complete'},
+  ]},
+];
+function showPage(i,el){
+  document.querySelectorAll('#page-tabs .tab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+  const s=pageSteps[i];
+  const panel=document.getElementById('page-panel'); panel.innerHTML='';
+  s.rows.forEach(r=>{const e=document.createElement('div');e.className='ctx '+r.cls;e.textContent=r.t;panel.appendChild(e);});
+  document.getElementById('page-note').textContent=s.note;
+}
+showPage(0,document.querySelector('#page-tabs .tab'));
+
+/* ── Scrollspy ────────────────────────────────────── */
+const spy=new IntersectionObserver(entries=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting){
+      document.querySelectorAll('#sidebar a').forEach(a=>a.classList.remove('active'));
+      const link=document.querySelector(`#sidebar a[href="#${e.target.id}"]`);
+      if(link) link.classList.add('active');
+    }
+  });
+},{rootMargin:'-20% 0px -70% 0px'});
+document.querySelectorAll('h2[id],h3[id]').forEach(el=>spy.observe(el));
+</script>
+
+</body>
+</html>
